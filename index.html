@@ -1,1 +1,65 @@
-# my_fx_signal_desk
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>My FX Signal Desk — EUR/USD</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#131e30;--line:#26364d;--muted:#a9b7ca;--text:#f2f6fc;--blue:#70a7ff;--green:#39d98a;--red:#ff7272;--amber:#ffd166}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#0b1220,#111b2b);font:16px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text)}
+main{max-width:760px;margin:auto;padding:18px 14px 34px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+h1{font-size:1.45rem;margin:0 0 5px}.sub{color:var(--muted);font-size:.88rem}.pill{border:1px solid var(--line);border-radius:99px;padding:7px 11px;color:var(--muted);font-size:.8rem}
+.card{background:rgba(19,30,48,.96);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:14px;box-shadow:0 10px 30px #0002}
+.price{font-size:2.15rem;font-weight:750;letter-spacing:.02em;margin:4px 0}.muted{color:var(--muted)}.row{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.signal{font-size:1.25rem;font-weight:800;letter-spacing:.04em}.signal.wait{color:var(--amber)}.signal.up{color:var(--green)}.signal.down{color:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{background:#0d1726;border:1px solid var(--line);border-radius:12px;padding:12px}.metric .v{font-size:1.05rem;font-weight:700;margin-top:4px}
+button,select{background:#1b2b42;color:var(--text);border:1px solid #3b5272;border-radius:10px;padding:11px 13px;font:inherit}button{cursor:pointer}button:active{transform:scale(.99)}
+canvas{width:100%;height:180px;display:block;background:#0d1726;border-radius:12px;margin-top:12px}
+.note{font-size:.86rem;line-height:1.5;color:var(--muted)}.status{font-size:.85rem;margin-top:8px}.good{color:var(--green)}.bad{color:var(--red)}
+ul{padding-left:20px;line-height:1.55}.foot{font-size:.78rem;color:var(--muted);line-height:1.5;margin:16px 2px}
+@media(min-width:600px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.price{font-size:2.7rem}}
+</style></head>
+<body><main>
+<div class="top"><div><h1>My FX Signal Desk</h1><div class="sub">EUR/USD · 1-minute candles · signal only</div></div><div class="pill" id="connection">CONNECTING…</div></div>
+<section class="card">
+ <div class="row"><div><div class="muted">Live mid-price</div><div class="price" id="price">—</div><div class="sub" id="quoteTime">Waiting for market data…</div></div><div><button id="refresh">Refresh now</button></div></div>
+ <canvas id="chart" width="700" height="180" aria-label="Recent EUR USD closing prices"></canvas>
+</section>
+<section class="card">
+ <div class="muted">Latest indicator signal</div><div id="signal" class="signal wait" style="margin:8px 0">WAIT · Loading candles</div>
+ <div id="reason" class="note">Fetching historical 1-minute candles from the market-data provider.</div>
+ <div class="grid" style="margin-top:14px">
+  <div class="metric"><div class="muted">RSI (14)</div><div class="v" id="rsi">—</div></div>
+  <div class="metric"><div class="muted">EMA (9)</div><div class="v" id="ema9">—</div></div>
+  <div class="metric"><div class="muted">EMA (21)</div><div class="v" id="ema21">—</div></div>
+  <div class="metric"><div class="muted">MACD / signal</div><div class="v" id="macd">—</div></div>
+ </div>
+ <div class="status" id="status">Starting…</div>
+</section>
+<section class="card"><div class="row"><strong>Signal rules</strong><span class="pill">Educational</span></div>
+<ul class="note"><li><b style="color:var(--green)">Possible UP / CALL:</b> EMA 9 above EMA 21, MACD above its signal line, RSI 50–70.</li><li><b style="color:var(--red)">Possible DOWN / PUT:</b> EMA 9 below EMA 21, MACD below its signal line, RSI 30–50.</li><li>Otherwise the tool displays WAIT. Signals are not guarantees and may differ from Olymp Trade's own quote.</li></ul>
+</section>
+<div class="foot">Data source: biquote public EURUSD feed (third-party MT5-derived quotes). This is an independent indicator tool, not affiliated with Olymp Trade. Market data may be delayed, stale, unavailable, or different from your broker's price. Do not use a signal as a promise of profit. No login, account credentials, or order-placement functions are used.</div>
+</main>
+<script>
+const API='https://biquote.io/api/EURUSD';
+const OHLC='https://biquote.io/api/EURUSD/ohlc?interval=1m&limit=150';
+let bars=[],lastTick=null,refreshing=false;
+const $=id=>document.getElementById(id);
+function fmt(n){return Number.isFinite(n)?n.toFixed(5):'—'}
+function ema(vals,p){let a=Array(vals.length).fill(null);if(vals.length<p)return a;let prev=vals.slice(0,p).reduce((x,y)=>x+y,0)/p;a[p-1]=prev;let k=2/(p+1);for(let i=p;i<vals.length;i++){prev=vals[i]*k+prev*(1-k);a[i]=prev}return a}
+function rsi(vals,p=14){let out=Array(vals.length).fill(null);if(vals.length<=p)return out;let g=0,l=0;for(let i=1;i<=p;i++){let d=vals[i]-vals[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;out[p]=l===0?100:100-100/(1+g/l);for(let i=p+1;i<vals.length;i++){let d=vals[i]-vals[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p;out[i]=l===0?100:100-100/(1+g/l)}return out}
+function draw(closes){const c=$('chart'),ctx=c.getContext('2d'),w=c.width,h=c.height;ctx.clearRect(0,0,w,h);ctx.strokeStyle='#26364d';ctx.lineWidth=1;for(let j=1;j<4;j++){ctx.beginPath();ctx.moveTo(0,h*j/4);ctx.lineTo(w,h*j/4);ctx.stroke()}if(closes.length<2)return;let lo=Math.min(...closes),hi=Math.max(...closes),pad=(hi-lo)*.12||.0001;lo-=pad;hi+=pad;ctx.strokeStyle='#70a7ff';ctx.lineWidth=2;ctx.beginPath();closes.forEach((v,i)=>{let x=i*w/(closes.length-1),y=h-(v-lo)/(hi-lo)*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
+function evaluate(){if(bars.length<35){$('signal').textContent='WAIT · Need more candles';$('reason').textContent=`Received ${bars.length} candles; at least 35 are needed.`;return}
+const closes=bars.map(b=>Number(b.close)).filter(Number.isFinite),e9=ema(closes,9),e21=ema(closes,21),r=rsi(closes,14),e12=ema(closes,12),e26=ema(closes,26),m=closes.map((_,i)=>e12[i]===null||e26[i]===null?null:e12[i]-e26[i]),mvalid=m.filter(v=>v!==null),ms=ema(mvalid,9);let k=0,ml=Array(m.length).fill(null);m.forEach((v,i)=>{if(v!==null)ml[i]=ms[k++]});let i=closes.length-1;
+$('rsi').textContent=r[i]?.toFixed(1)??'—';$('ema9').textContent=fmt(e9[i]);$('ema21').textContent=fmt(e21[i]);$('macd').textContent=(m[i]===null?'—':m[i].toFixed(5)+' / '+(ml[i]?.toFixed(5)??'—'));draw(closes.slice(-80));
+let sig='WAIT · NO CLEAR SIGNAL',cls='wait',why='Indicators do not align. Wait for a clearer setup.';
+if(e9[i]>e21[i]&&m[i]>ml[i]&&r[i]>50&&r[i]<70){sig='POSSIBLE UP / CALL';cls='up';why='EMA 9 > EMA 21, MACD above signal, RSI between 50 and 70.'}
+else if(e9[i]<e21[i]&&m[i]<ml[i]&&r[i]>30&&r[i]<50){sig='POSSIBLE DOWN / PUT';cls='down';why='EMA 9 < EMA 21, MACD below signal, RSI between 30 and 50.'}
+$('signal').textContent=sig;$('signal').className='signal '+cls;$('reason').textContent=why+' This is a technical indicator condition, not a prediction.';
+}
+async function loadCandles(){const r=await fetch(OHLC,{cache:'no-store'});if(!r.ok)throw Error('Candles API returned HTTP '+r.status);const d=await r.json();if(!Array.isArray(d.bars))throw Error('Unexpected candle response');bars=d.bars.filter(b=>Number.isFinite(Number(b.close))).sort((a,b)=>new Date(a.openTime)-new Date(b.openTime));evaluate()}
+async function loadQuote(){const r=await fetch(API+'?allowStale=false',{cache:'no-store'});if(!r.ok)throw Error('Quote unavailable (HTTP '+r.status+')');const q=await r.json();if(q.marketState==='closed'||q.stale||Number(q.quoteAgeSeconds)>300){$('connection').textContent='STALE / CLOSED';$('connection').style.color='var(--amber)';$('status').textContent='Market quote is stale or market is closed. Do not rely on the displayed signal.';$('status').className='status bad';}else{$('connection').textContent='LIVE FEED';$('connection').style.color='var(--green)';$('status').textContent='Connected to third-party feed. Compare prices with Olymp Trade before using.';$('status').className='status good'}lastTick=q;$('price').textContent=fmt(Number(q.mid));$('quoteTime').textContent='Feed time: '+(q.timestamp?new Date(q.timestamp).toLocaleString():'unknown')+' · '+(q.source||'market feed');}
+async function refresh(){if(refreshing)return;refreshing=true;$('status').textContent='Updating market data…';try{await Promise.all([loadCandles(),loadQuote()])}catch(e){$('connection').textContent='DATA ERROR';$('connection').style.color='var(--red)';$('status').textContent=e.message+' Check internet connection, or try again later.';$('status').className='status bad'}finally{refreshing=false}}
+$('refresh').addEventListener('click',refresh);refresh();setInterval(refresh,15000);
+</script></body></html>
